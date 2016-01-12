@@ -1,29 +1,35 @@
-import javafx.geometry.Point2D;
+import com.sun.javafx.geom.Vec2d;
 import model.*;
 
 import static java.lang.StrictMath.*;
 
 import java.util.*;
-// version classic published as 13th some text for new branch
+
+// modern version to upload on github
 
 
 public final class MyStrategy implements Strategy {
-
-    public boolean debugPrint = true;
 
     public double posX = 0;
     public double posY = 0;
 
     // Settings
     public double danDistanceFactor = 40.0D;
-    public double wheelTurnFactor = 1.8D;
+    public double wheelTurnFactor = 1.7D;
     public double getSlowDistance = 1000.0D;
-    public double slowEnginePower = 0.8D; // 0.8
-    public double brakeDistanceSpeedFactor = 55.0D;
-    public double noBrakeSpeed = 23;
+    public double slowEnginePower = 1.0D; // 0.8
+    public double brakeDistanceSpeedFactor = 50.0D;
+    public double sideSpeedFactor = 8.0D;
+    public double noBrakeSpeedConstant = 8.0D;
 
     // shooting settings
     public int buggyShootingCalculationTicks = 75;
+
+    // director settings
+    public int directorCalculatingTime = 5000; // 5000
+    public double directorAccuracy = 5.0D; // 5.0D
+    public double directorCarCircleVolume = 3.0D; // 3.0D
+    public int directorLookTileDistance = 150;
 
     // Stuck and rear move
     public int ticksStay = 0;
@@ -34,35 +40,13 @@ public final class MyStrategy implements Strategy {
     public int noRearMoveTicksNorm =230;
     public int noRearMoveTicks = 0;
 
-    // Behaviours
-    public boolean startNoTurns = true;
-    public double startNoTurnsDistance = -1;
-    public double passedStartDistance = 0;
-
-
     @Override
     public void move(Car self, World world, Game game, Move move) {
 
-        // Define tile types and ways
-        Map<String, List<Integer>> dirs = new HashMap<String, List<Integer>>();
-        dirs.put("DOWN", new ArrayList<Integer>(Arrays.asList(0, 1)));
-        dirs.put("LEFT", new ArrayList<Integer>(Arrays.asList(-1, 0)));
-        dirs.put("UP", new ArrayList<Integer>(Arrays.asList(0, -1)));
-        dirs.put("RIGHT", new ArrayList<Integer>(Arrays.asList(1, 0)));
+        MySettings mySettings = new MySettings(directorCarCircleVolume, directorLookTileDistance);
+        Context context = new Context(game, world, self, mySettings);
+        Debugger debugger = new Debugger(true);
 
-        Map <TileType, List<String>> tileTypes = new HashMap<TileType, List<String>>();
-        tileTypes.put(TileType.VERTICAL, new ArrayList<String>(Arrays.asList("DOWN", "UP")));
-        tileTypes.put(TileType.HORIZONTAL, new ArrayList<String>(Arrays.asList("LEFT", "RIGHT")));
-        tileTypes.put(TileType.LEFT_TOP_CORNER, new ArrayList<String>(Arrays.asList("DOWN", "RIGHT")));
-        tileTypes.put(TileType.RIGHT_TOP_CORNER, new ArrayList<String>(Arrays.asList("DOWN", "LEFT")));
-        tileTypes.put(TileType.LEFT_BOTTOM_CORNER, new ArrayList<String>(Arrays.asList("UP", "RIGHT")));
-        tileTypes.put(TileType.RIGHT_BOTTOM_CORNER, new ArrayList<String>(Arrays.asList("LEFT", "UP")));
-        tileTypes.put(TileType.LEFT_HEADED_T, new ArrayList<String>(Arrays.asList("DOWN", "LEFT", "UP")));
-        tileTypes.put(TileType.RIGHT_HEADED_T, new ArrayList<String>(Arrays.asList("DOWN", "UP", "RIGHT")));
-        tileTypes.put(TileType.TOP_HEADED_T, new ArrayList<String>(Arrays.asList( "LEFT", "UP", "RIGHT")));
-        tileTypes.put(TileType.BOTTOM_HEADED_T, new ArrayList<String>(Arrays.asList("DOWN", "LEFT", "RIGHT")));
-        tileTypes.put(TileType.CROSSROADS, new ArrayList<String>(Arrays.asList("DOWN", "LEFT", "UP", "RIGHT")));
-        tileTypes.put(TileType.UNKNOWN, new ArrayList<String>(Arrays.asList("DOWN", "LEFT", "UP", "RIGHT")));
 
 
 
@@ -70,512 +54,102 @@ public final class MyStrategy implements Strategy {
         double myPointY =self.getY();
         int myTileX = (int) Math.floor(myPointX/game.getTrackTileSize());
         int myTileY = (int) Math.floor(myPointY/game.getTrackTileSize());
-        int nextWayPointIndex = self.getNextWaypointIndex();
 
-        double nextWayPointX = self.getNextWaypointX();
-        double nextWayPointY = self.getNextWaypointY();
+        int nextWayPointX = self.getNextWaypointX();
+        int nextWayPointY = self.getNextWaypointY();
 
-        TileType tiles[][] = world.getTilesXY();
-        TileType stiles[] = tiles[1];
+        double nextWayPointXPos = (nextWayPointX+0.5D)*game.getTrackTileSize();
+        double nextWayPointYPos = (nextWayPointY+0.5D)*game.getTrackTileSize();
+        System.out.println("Distance: " + self.getDistanceTo(nextWayPointXPos, nextWayPointYPos));
+        boolean wpUpdated = false;
+        if (self.getDistanceTo(nextWayPointXPos, nextWayPointYPos) < 1200){
 
-        int hTilesCount = tiles.length;
-        int vTilesCount = stiles.length;
-
-        double pathTileX = 0;
-        double pathTileY = 0;
-
-        int[][] visits;
-        visits = new int[tiles.length][stiles.length];
-        boolean reached = false;
-        int front = 0;
-        int step = 1;
-        visits[(int)nextWayPointX][(int)nextWayPointY] = 1;
-        while (reached == false){
-            if ((myTileX == nextWayPointX) && (myTileY == nextWayPointY)){
-                reached = true;
-                System.out.println("I'm on wayPoint");
-            }
-            //else{
-            step++;
-            front++;
-
-            for (int i = 0; i < hTilesCount; i++) {
-                for (int j = 0; j < vTilesCount; j++) {
-
-                    if (visits[i][j] == front){
-                        TileType[][] tilesXY = world.getTilesXY();
-                        TileType thisTiletype = tilesXY[i][j];
-                        if (thisTiletype != TileType.EMPTY){
-                            List<String> directions;
-                            directions = tileTypes.get(thisTiletype);
-                            for (int k = 0; k < directions.size(); k++) {
-                                List<Integer> deltas = dirs.get(directions.get(k));
-                                int tx = i + deltas.get(0);
-                                int ty = j + deltas.get(1);
-                                if ((tx < 0) || (tx == hTilesCount) || (ty < 0) || (ty == vTilesCount)){
-                                    // Tile does not exist, do nothing
-                                    //System.out.println("Tile " + tx + ", " + ty + " does not exist");
-                                }
-                                else{
-                                    if (visits[tx][ty] == 0){
-                                        visits[tx][ty] = step;
-                                        //System.out.println("New tile " + tx + ", " + ty);
-                                        // Check if we reached the aim
-                                        if ((tx == myTileX) && (ty == myTileY)){
-                                            reached = true;
-                                            //System.out.println("The Aim is reached " + tx + ", " + ty);
-                                            pathTileX = i;
-                                            pathTileY = j;
-
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-
-
-
-                    }
-                }
-            }
-            //}
-
-        }
-
-        // Here we redefine path point depending on car bearing
-        double carBearing = self.getAngle();
-
-        List<String> carDirections = new ArrayList<>();
-        if (carBearing == 0){
-            // east
-            carDirections = tileTypes.get(TileType.RIGHT_HEADED_T);
-        }
-        if ((carBearing > 0) && (carBearing < (PI/2.0D))){
-            // south east
-            carDirections = tileTypes.get(TileType.LEFT_TOP_CORNER);
-        }
-        if (carBearing == (PI/2.0D)) {
-            // south
-            carDirections = tileTypes.get(TileType.BOTTOM_HEADED_T);
-        }
-        if ((carBearing > (PI/2.0D)) && (carBearing < PI)) {
-            // south west
-            carDirections = tileTypes.get(TileType.RIGHT_TOP_CORNER);
-        }
-        if ((carBearing == PI) || (carBearing == (-1.0D * PI))) {
-            // west
-            carDirections = tileTypes.get(TileType.LEFT_HEADED_T);
-        }
-        if ((carBearing > (-1.0D * PI)) && (carBearing < (-1.0D * PI / 2.0D))) {
-            // north west
-            carDirections = tileTypes.get(TileType.RIGHT_BOTTOM_CORNER);
-        }
-        if (carBearing == (-1.0D * PI / 2.0D)) {
-            // north
-            carDirections = tileTypes.get(TileType.TOP_HEADED_T);
-        }
-        if ((carBearing > (-1.0D * PI / 2.0D)) && (carBearing < 0)) {
-            // north east
-            carDirections = tileTypes.get(TileType.LEFT_BOTTOM_CORNER);
-        }
-        boolean gotCarDirection = false;
-
-        TileType[][] tilesXY = world.getTilesXY();
-        TileType carTileType = tilesXY[myTileX][myTileY];
-        int pathFactor = visits[myTileX][myTileY] -1;
-        //while (!gotCarDirection) {
-            /*System.out.println("Cycle gotCarDirection");
-            System.out.println("carBearing" + carBearing);
-            System.out.println("carTileType " + carTileType);
-            System.out.println("pathFactor " + pathFactor);
-            System.out.println("carDirections.size() " +carDirections.size());*/
-
-        for (int q = 0; q < carDirections.size(); q++) {
-            String curDirection = carDirections.get(q);//System.out.println("curDirection " + curDirection);
-            boolean dirAvailable = false;
-            List<String> avDirections;
-            avDirections = tileTypes.get(carTileType);
-            //System.out.println("avDirections.size() " + avDirections.size());
-            for (int e = 0; e < avDirections.size(); e++) {
-                //System.out.println("avDirections.get(e) " + avDirections.get(e));
-                if (avDirections.get(e) == curDirection){
-                    dirAvailable = true;
-                }
-            }
-            if (dirAvailable) {
-                //System.out.println("DIRECTION IS AVAILABLE");
-                // Print visits
-                for (int j = 0; j < vTilesCount; j++) {
-                    for (int i = 0; i < hTilesCount; i++) {
-                        //System.out.print(visits[i][j] + "   ");
-                    }
-                    //System.out.print("\n");
-                }
-                List<Integer> deltas = dirs.get(curDirection);
-                int px = myTileX + deltas.get(0);
-                int py = myTileY + deltas.get(1);
-                if (visits[px][py] == pathFactor){
-                    gotCarDirection =true;
-                    q = carDirections.size();
-                    pathTileX = px;
-                    pathTileY = py;
-                    //System.out.println("DIRECTION CHOSEN  TICK" + world.getTick());
-                }
-            }
-
-        }
-        //}
-
-
-
-        // Here we define the last tile on the direct part of route
-
-        boolean gotLastTile = false;
-        String directorBearing = "unknown";
-
-        int dx = 0;
-        int dy = 0;
-
-        // Define the line
-        if (myTileX == pathTileX){
-            // Vertical
-            // Define up or down
-            if (myTileY > pathTileY ){
-                // Up
-                dy = -1;
-                directorBearing = "UP";
-            }
-            else{
-                // Down
-                dy = 1;
-                directorBearing = "DOWN";
-            }
-        }
-        else{
-            // Horizontal
-            // Define left or right
-            if (myTileX > pathTileX ){
-                // Left
-                dx = - 1;
-                directorBearing = "LEFT";
-            }
-            else{
-                // Right
-                dx = 1;
-                directorBearing = "RIGHT";
-            }
-        }
-        int nstep = visits[(int)pathTileX][(int)pathTileY] - 1;
-        //TileType[][] tilesXY = world.getTilesXY();
-        TileType thisTileType = tilesXY[(int)pathTileX][(int)pathTileY];
-        List<String> fDirections;
-        fDirections = tileTypes.get(thisTileType);
-        gotLastTile = true;
-        for (int n = 0; n < fDirections.size(); n++) {
-            if (fDirections.get(n) == directorBearing){
-                gotLastTile = false;
-            }
-        }
-
-        while ((gotLastTile == false) && (nstep > 1)){
-            int nx = (int)pathTileX + dx;
-            int ny = (int)pathTileY + dy;
-            if ((nx < hTilesCount) && (ny < vTilesCount) && (nx >= 0) && (ny >= 0)) {
-                if (visits[nx][ny] == nstep) {
-                    pathTileX = nx;
-                    pathTileY = ny;
-                    thisTileType = tilesXY[nx][ny];
-                    gotLastTile = true;
-                    if (thisTileType != TileType.EMPTY) {
-                        List<String> directions;
-                        directions = tileTypes.get(thisTileType);
-                        for (int n = 0; n < directions.size(); n++) {
-                            if (directions.get(n) == directorBearing){
-                                gotLastTile = false;
-                            }
-                        }
-                    }
-
-                } else {
-                    gotLastTile = true;
-                }
-            } else{
-                gotLastTile = true;
-            }
-            nstep = visits[(int)pathTileX][(int)pathTileY] - 1;
-        }
-
-
-        // Here ghost appears
-
-        double ghostPointX = (pathTileX+0.5D) * game.getTrackTileSize();
-        double ghostPointY = (pathTileY+0.5D) * game.getTrackTileSize();
-        int ghostTileX = (int) Math.floor(ghostPointX/game.getTrackTileSize());
-        int ghostTileY = (int) Math.floor(ghostPointY/game.getTrackTileSize());
-
-        int ghostNextWayPointIndex = self.getNextWaypointIndex();
-
-        if ((ghostTileX == self.getNextWaypointX()) && (ghostTileY == self.getNextWaypointY())){
-            ghostNextWayPointIndex = nextWayPointIndex + 1;
-            if (ghostNextWayPointIndex == world.getWaypoints().length) {
-                ghostNextWayPointIndex = 1;
-            }
-        }
-        int ghostNextWayPointX = world.getWaypoints()[ghostNextWayPointIndex][0];
-        int ghostNextWayPointY = world.getWaypoints()[ghostNextWayPointIndex][1];
-
-        double ghostPathTileX = 0;
-        double ghostPathTileY = 0;
-
-        int[][] bisits;
-        bisits = new int[tiles.length][stiles.length];
-        boolean breached = false;
-        int bfront = 0;
-        int bstep = 1;
-        bisits[ghostNextWayPointX][ghostNextWayPointY] = 1;
-
-        String mDirection = "unknown";
-
-        while (breached == false){
-
-            bstep++;
-            bfront++;
-
-            for (int i = 0; i < hTilesCount; i++) {
-                for (int j = 0; j < vTilesCount; j++) {
-
-                    if (bisits[i][j] == bfront){
-                        //TileType[][] tilesXY = world.getTilesXY();
-                        //TileType thisTileType = tilesXY[i][j];
-                        thisTileType = tilesXY[i][j];
-                        if (thisTileType != TileType.EMPTY){
-                            List<String> directions;
-                            directions = tileTypes.get(thisTileType);
-                            for (int k = 0; k < directions.size(); k++) {
-                                List<Integer> deltas = dirs.get(directions.get(k));
-                                int tx = i + deltas.get(0);
-                                int ty = j + deltas.get(1);
-                                if ((tx < 0) || (tx == hTilesCount) || (ty < 0) || (ty == vTilesCount)){
-                                    // Tile does not exist, do nothing
-                                    //System.out.println("Tile " + tx + ", " + ty + " does not exist");
-                                }
-                                else{
-                                    if (bisits[tx][ty] == 0){
-                                        bisits[tx][ty] = bstep;
-                                        //System.out.println("New tile " + tx + ", " + ty);
-                                        // Check if we reached the aim
-                                        if ((tx == ghostTileX) && (ty == ghostTileY)){
-                                            breached = true;
-                                            //System.out.println("The Aim is reached " + tx + ", " + ty);
-                                            ghostPathTileX = i;
-                                            ghostPathTileY = j;
-
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-
-
-
-                    }
-                }
-            }
-
+            int nextWayPointIndex = self.getNextWaypointIndex()+1;
+            if (nextWayPointIndex == world.getWaypoints().length) nextWayPointIndex = 0;
+            nextWayPointX = world.getWaypoints()[nextWayPointIndex][0];
+            nextWayPointY = world.getWaypoints()[nextWayPointIndex][1];
+            wpUpdated = true;
+            System.out.println("WayPoint updated to: " + nextWayPointIndex+ " ("
+                    +nextWayPointX+", "+ nextWayPointY);
 
         }
 
 
-        // Longer director
-        if ((myTileX == ghostPathTileX) || (myTileY == ghostPathTileY)){
-            pathTileX = ghostPathTileX;
-            pathTileY = ghostPathTileY;
+        TrackRecord trackRecord = new TrackRecord(context);
+
+
+        // creating trackRecord
+
+        PathTile wayPointTile = new PathTile(nextWayPointX, nextWayPointY, context);
+        int [][] visits = routeMatrix.getMatrixForPoint(wayPointTile, context, wpUpdated);
+        /*if (wpUpdated){
+            trackRecord.buildUpdated(visits, self);
+        }
+        else {
+            trackRecord.build(visits, self);
+        }*/
+        trackRecord.build(visits, self);
+        //PathPoint pathPoint = Director.definePoint(trackRecord, self, context, directorCalculatingTime, directorAccuracy, debugger, directorLookTileDistance); // 5000 5
+        PathPoint pathPoint = Director.choosePoint(trackRecord, self, context, directorCalculatingTime, directorAccuracy, debugger, 10);
+        //PathPoint[] points = Director.definePoints(trackRecord, self, context, directorCalculatingTime, directorAccuracy, debugger, 3);
+        List<PathPoint> points = Director.definePoints(trackRecord, self, context, directorCalculatingTime, directorAccuracy, debugger, 10);
+        for (int i = 0; i < points.size(); i++) {
+            PathTile chosenTile = points.get(i).getPathTile();
+            System.out.println("Director point "+i+":  "+chosenTile.getXpos()+", "+chosenTile.getYpos());
         }
 
+        System.out.println("wpX: " + nextWayPointX
+                + "  wpY: " + nextWayPointY
+                + "  ppx: " + pathPoint.getX()
+                + "  ppy: " + pathPoint.getY());
+        System.out.println("myX: " + self.getX()
+                + "  myY: " + self.getY()
+                + "  myTile: " + myTileX
+                + "," + myTileY);
 
-
-
-        // end ghost code
-        double pathPointX = (pathTileX+0.5D) * game.getTrackTileSize();
-        double pathPointY = (pathTileY+0.5D) * game.getTrackTileSize();
-
-        if (pathTileX == myTileX){
-            // vertical
-            if (pathTileY > myTileY){
-                // moving down
-                pathPointY = pathPointY - (game.getTrackTileSize()/2.0D);
-                mDirection = "down no ghost";
-            }
-            else{
-                // moving up
-                pathPointY = pathPointY + (game.getTrackTileSize()/2.0D);
-                mDirection = "up no ghost";
-            }
+        for (int i = 0; i < trackRecord.length(); i++) {
+            System.out.print(trackRecord.getTile(i).getXpos()+":"+trackRecord.getTile(i).getYpos()+"  ");
         }
-
-        if (pathTileY == myTileY){
-            // horizontal
-            if (pathTileX > myTileX){
-                // moving right
-                pathPointX = pathPointX - (game.getTrackTileSize()/2.0D);
-                mDirection = "right no ghost";
-            }
-            else{
-                // moving left
-                pathPointX = pathPointX + (game.getTrackTileSize()/2.0D);
-                mDirection = "left no ghost";
-            }
-        }
+        System.out.print("\n");
+        Debugger.printMatrix(visits);
 
 
 
-
-
+        double pathPointX = pathPoint.getX();
+        double pathPointY = pathPoint.getY();
 
         double distance = self.getDistanceTo(pathPointX,pathPointY);
 
-        double dicsreteDistance = game.getCarHeight()*50;
+        //double dicsreteDistance = game.getCarHeight()*50;
 
         double speedModule = hypot(self.getSpeedX(), self.getSpeedY());
         double danDistance = danDistanceFactor * speedModule; // 55
 
-        int realMyTileX = myTileX;
-        int realMyTileY = myTileY;
+        /*if (context.circleCarCollisionInTicks(15)){
+            if (speedModule > 1) move.setBrake(true);
+        }*/
+
+
         if (distance < danDistance ){
-
-
-            // Trying to hose route depending on car bearing even for ghost
-            TileType ghostCarTileType = tilesXY[ghostTileX][ghostTileY];
-            // TODO We've decided that ghostCarDirection equals to carDirection, although it is not
-            int ghostPathFactor = bisits[ghostTileX][ghostTileY] -1;
-            boolean gotCarDirectionForGhost = false;
-            //while (!gotCarDirectionForGhost) {
-                /*System.out.println("Cycle gotCarDirection FOR GHOST");
-                System.out.println("carBearing" + carBearing);
-                System.out.println("ghostCarTileType " + ghostCarTileType);
-                System.out.println("ghostPathFactor " + ghostPathFactor);
-                System.out.println("carDirections.size() " +carDirections.size());*/
-
-            for (int q = 0; q < carDirections.size(); q++) {
-                String curDirection = carDirections.get(q);//System.out.println("curDirection " + curDirection);
-                boolean dirAvailable = false;
-                List<String> avDirections;
-                avDirections = tileTypes.get(ghostCarTileType);
-                //System.out.println("avDirections.size() " + avDirections.size());
-                for (int e = 0; e < avDirections.size(); e++) {
-                    //System.out.println("avDirections.get(e) " + avDirections.get(e));
-                    if (avDirections.get(e) == curDirection){
-                        dirAvailable = true;
-                        e = avDirections.size();
-                    }
-                }
-                if (dirAvailable) {
-                    //System.out.println("DIRECTION IS AVAILABLE");
-                    //System.out.println("ghostTileX" + ghostTileX);
-                    //System.out.println("ghostTileY" + ghostTileY);
-                    // Print visits
-                    //System.out.println("bizits________________________________________________");
-                    for (int j = 0; j < vTilesCount; j++) {
-                        for (int i = 0; i < hTilesCount; i++) {
-                            //System.out.print(bisits[i][j] + "   ");
-                        }
-                        //System.out.print("\n");
-                    }
-                    List<Integer> deltas = dirs.get(curDirection);
-                    int px = ghostTileX + deltas.get(0);
-                    int py = ghostTileY + deltas.get(1);
-                    if (bisits[px][py] == ghostPathFactor){
-                        gotCarDirectionForGhost =true;
-                        q = carDirections.size();
-                        ghostPathTileX = px;
-                        ghostPathTileY = py;
-                        //System.out.println("GHOST DIRECTION CHOSEN  TICK" + world.getTick());
-                    }
-                }
-
-            }
-            //}
-
-            // TODO: dedededebag mode
-            System.out.println("TICK " + world.getTick());
-
-
-
-
-
-
-
-
-
-
-            // END Trying to hose route depending on car bearing even for ghost
-
-
-
-
-
-
-            pathPointX = (ghostPathTileX+0.5D) * game.getTrackTileSize();
-            pathPointY = (ghostPathTileY+0.5D) * game.getTrackTileSize();
-
-            if (ghostPathTileX == ghostTileX){
-                // vertical
-                if (ghostPathTileY > ghostTileY){
-                    // moving down
-                    //pathPointY = pathPointY - (game.getTrackTileSize()/2.0D);  // TODO BAse version
-                    mDirection = "down";
-                }
-                else{
-                    // moving up
-                    //pathPointY = pathPointY + (game.getTrackTileSize()/2.0D);
-                    mDirection = "up";
-
-                }
-            }
-
-            if (ghostPathTileY == ghostTileY){
-                // horizontal
-                if (ghostPathTileX > ghostTileX){
-                    // moving right
-                    //pathPointX = pathPointX - (game.getTrackTileSize()/2.0D);
-                    mDirection = "right";
-                }
-                else{
-                    // moving left
-                    //pathPointX = pathPointX + (game.getTrackTileSize()/2.0D);
-                    mDirection = "left";
-                }
-            }
-
-
-            distance = self.getDistanceTo(pathPointX,pathPointY);
-
-            realMyTileX = ghostTileX;
-            realMyTileY = ghostTileY;
-
-
-
-
-
-
+            if (speedModule > noBrakeSpeedConstant) move.setBrake(true);
         }
 
 
 
-
-
-
+        TileType[][] tilesXY = world.getTilesXY();
+        PathPoint myPoint = new PathPoint(self.getX(), self.getY(), context);
+        PathTile myTile = myPoint.getPathTile();
+        int realMyTileX = myTile.getXpos();
+        int realMyTileY = myTile.getYpos();
 
         // Collecting bonuses
 
         Bonus[] Bonuses = world.getBonuses();
         for (int i = 0; i < Bonuses.length; i++) {
-            if ((world.getTick()>800)
-                    ||(Bonuses[i].getType() == BonusType.PURE_SCORE)
+            if ((Bonuses[i].getType() == BonusType.PURE_SCORE)
                     || (Bonuses[i].getType() == BonusType.NITRO_BOOST)
                     || (Bonuses[i].getType() == BonusType.AMMO_CRATE)
+                    || (Bonuses[i].getType() == BonusType.OIL_CANISTER)
                     || ((Bonuses[i].getType() == BonusType.REPAIR_KIT) && (self.getDurability() < 0.66D))){
                 int bonusTileX = (int) Math.floor(Bonuses[i].getX()/game.getTrackTileSize());
                 int bonusTileY = (int) Math.floor(Bonuses[i].getY()/game.getTrackTileSize());
@@ -624,51 +198,9 @@ public final class MyStrategy implements Strategy {
             }
         }
 
-        /*System.out.println(mDirection + "  from " +self.getX() + ", " + self.getY() + "  to  "
-                +  pathPointX + ", " + pathPointY);
-        System.out.println("myTileX" + myTileX);
-        System.out.println("myTileY" + myTileY);
-        System.out.println("ghostTileX" + ghostTileX);
-        System.out.println("ghostTileY" + ghostTileY);
-        System.out.println("ghostTileY" + self.getNextWaypointX());
-        System.out.println("ghostTileY" + self.getNextWaypointY());
-        System.out.println("pathTileX" +pathTileX);
-        System.out.println("pathTileY" + pathTileY);
-        System.out.println("ghostPathTileX" + ghostPathTileX);
-        System.out.println("ghostPathTileY" + ghostPathTileY);
-        System.out.println("_________________________________");*/
 
 
-        if (mDirection == "unknown"){
-            System.out.println("DIRECTION IS UNKNOWN");
-            System.out.println("myTileX" + myTileX);
-            System.out.println("myTileY" + myTileY);
-            System.out.println("ghostTileX" + ghostTileX);
-            System.out.println("ghostTileY" + ghostTileY);
-            System.out.println("ghostTileY" + self.getNextWaypointX());
-            System.out.println("ghostTileY" + self.getNextWaypointY());
-            System.out.println("pathTileX" +pathTileX);
-            System.out.println("pathTileY" + pathTileY);
-            System.out.println("ghostPathTileX" + ghostPathTileX);
-            System.out.println("ghostPathTileY" + ghostPathTileY);
-            System.out.println("_________________________________");
-            // Print visits
-            for (int j = 0; j < vTilesCount; j++) {
-                for (int i = 0; i < hTilesCount; i++) {
-                    //System.out.print(visits[i][j] + "   ");
-                }
-                //System.out.print("\n");
-            }
-            //System.out.println("_________________________________");
-            for (int j = 0; j < vTilesCount; j++) {
-                for (int i = 0; i < hTilesCount; i++) {
-                    //System.out.print(bisits[i][j] + "   ");
-                }
-                //System.out.print("\n");
-            }
-            //System.out.println("_________________________________");
-        }
-
+        pathPoint.setCoordinates(pathPointX, pathPointY);
 
         double speedX = self.getSpeedX();
         double speedY = self.getSpeedY();
@@ -683,27 +215,18 @@ public final class MyStrategy implements Strategy {
         }
 
         //System.out.println(speedModule);
-        MySettings mySettings = new MySettings();
-        Context context = new Context(game, world, self, mySettings);
-        PathPoint pathPoint = new PathPoint(pathPointX, pathPointY, context);
-        double sideSpeedFactor = 8.0D;
         CarModel carModel = new CarModel(context);
         double perpendicularSpeedFactor = -1.0D*carModel.getPerpendicularSpeed(pathPoint)/sideSpeedFactor;
 
+
         double angleToPathPoint = self.getAngleTo(pathPointX, pathPointY);
+        //double wheelTurn = angleToPathPoint * wheelTurnFactor * angleMult * speedModule / PI;
         double wheelTurn = angleToPathPoint * wheelTurnFactor * angleMult + perpendicularSpeedFactor;
 
+        move.setWheelTurn(wheelTurn);
+        System.out.println("curWheelTurn: " + self.getWheelTurn()+ "  wheelTurn: "+wheelTurn);
 
-        if (startNoTurnsDistance<0){
-            startNoTurnsDistance = self.getDistanceTo(pathPointX, pathPointY)-1250;
-        }
-        if (startNoTurns){
-            passedStartDistance = passedStartDistance + self.getDistanceTo(posX, posY);
-            if (passedStartDistance > startNoTurnsDistance) startNoTurns = false;
-        }
-        if (!startNoTurns) {
-            move.setWheelTurn(wheelTurn);
-        }
+
 
 
 
@@ -767,7 +290,8 @@ public final class MyStrategy implements Strategy {
         }
 
 
-        if (speedModule > distance / brakeDistanceSpeedFactor ) {  // 50
+
+        /*if (speedModule > distance / brakeDistanceSpeedFactor ) {  // 50
             if (speedModule > noBrakeSpeed) {
                 TileType pathTileType = tilesXY[(int)pathTileX][(int)pathTileY];
                 if (((pathTileType == TileType.HORIZONTAL) || (pathTileType == TileType.VERTICAL)) &&
@@ -781,19 +305,19 @@ public final class MyStrategy implements Strategy {
                 //System.out.println("Setting break speed" +  speedModule +  "   distance " + distance);
             }
 
-        }
+        }*/
 
         double angleToChosenPoint = Math.abs(self.getAngleTo(pathPointX, pathPointY));
-        if (    (distance > 3200.0D)
+        if ((distance > 3200.0D)
                 && (world.getTick() > 200)
-                && (angleToChosenPoint < (0.075D * PI))
-                && (carModel.getPerpendicularSpeed(pathPoint)<3)){
+                && (angleToChosenPoint < (0.075D * PI))){
             System.out.println("Using nitro, angle to "+pathPointX+ ", "+pathPointY+" is "+angleToChosenPoint);
             move.setUseNitro(true);
             //System.out.println(distance);
         }
 
 
+        System.out.println("Speed: " + speedModule+ "  Perpendicular speed:  "+carModel.getPerpendicularSpeed(pathPoint));
 
         posX = self.getX();
         posY = self.getY();
@@ -922,21 +446,10 @@ public final class MyStrategy implements Strategy {
         ///// EnD CODE
     }
 
+
+
 }
 
-///////////////////////////////////////////////////////////
-
-///////////////////////////////////////////////////////////
-
-///////////////////////////////////////////////////////////
-class MySettings{
-    public double directorCarCircleVolume;
-    public int directorLookTileDistance;
-    MySettings(){
-        //directorCarCircleVolume = newDirectorCarCircleVolume;
-        //directorLookTileDistance = newDirectorLookTileDistance;
-    }
-}
 class Context{
     public Game game;
     public World world;
@@ -1000,7 +513,7 @@ class Context{
     public double distanceBetweenPoints (PathPoint pointOne, PathPoint pointTwo){
         return Math.sqrt( Math.pow(pointOne.getX()-pointTwo.getX(), 2) + Math.pow(pointOne.getY()-pointTwo.getY(), 2) );
     }
-    /*public boolean circleCarCollisionInTicks(int ticks){
+    public boolean circleCarCollisionInTicks(int ticks){
         boolean result = false;
         PathPoint carPoint = new PathPoint(car.getX(), car.getY(), this);
         double speedX = car.getSpeedX();
@@ -1025,9 +538,8 @@ class Context{
             }
         }
         return result;
-    }*/
+    }
 }
-
 class CarModel{
     private double x;
     private double y;
@@ -1063,7 +575,7 @@ class CarModel{
         double rightTime = getTimeToTurn(Direction.RIGHT);
         double leftTime = getTimeToTurn(Direction.LEFT);
         Double[] times = {upTime, downTime, rightTime, leftTime};
-
+        Debugger.print("before sort up down right left: "+upTime+", "+ downTime+", "+ rightTime+", "+ leftTime);
         for (int j = 3; j > 0; j--) {
             for (int i = j; i > 0; i--) {
                 if (times[i] < times[i -1]) {
@@ -1113,13 +625,22 @@ class CarModel{
         double rightPerpendicularBearing = absoluteAngleToPoint + (0.5D*PI);
         double xm = cos(rightPerpendicularBearing);
         double ym = sin(rightPerpendicularBearing);
+        //double sx = speedX/xm;
+        //double sy = speedY/ym;
         double scal = speedX*xm + speedY*ym;
         double bModule = hypot(xm, ym);
-        double result = scal / bModule;
 
+        //double result = sx + sy;
+        double result = scal / bModule;
+        System.out.println("carBearing: "+Debugger.piAngle(bearing)+"*PI  point Bearing: "+Debugger.piAngle(absoluteAngleToPoint)+"*PI  angleToPoint: "+angleTo);
+        System.out.println("Perpendicular: "+Debugger.piAngle(rightPerpendicularBearing));
+        System.out.println("cos: "+xm+" sin: "+ym);
+        System.out.println("speedX: "+speedX+" speedY: "+speedY);
+        //System.out.println("sx: "+sx+" sy: "+sy);
         return result;
     }
 }
+
 class TurnsAngles{
     public static double getAbsoluteAngle(Direction dir){
         double result = 0;
@@ -1157,6 +678,7 @@ class TurnsAngles{
         return resultAngle;
     }
 }
+
 class PathTile{
     private int x;
     private int y;
@@ -1243,6 +765,7 @@ class PathTile{
         return result;
     }
 }
+
 class PathPoint{
     private double x;
     private double y;
@@ -1284,5 +807,798 @@ class PathPoint{
         double pointX = x + (xFactor * distance);
         double pointY = y + (yFactor * distance);
         return new PathPoint(pointX, pointY, c);
+    }
+}
+
+class TrackRecord{
+    private PathTile[] tiles;
+    private int elsCount;
+    private Game game;
+    private Context c;
+    TrackRecord(Context context){
+        elsCount = 0;
+        tiles = new PathTile[300];
+        game = context.game;
+        c = context;
+    }
+    public void addTile(int posX, int posY){
+        tiles[elsCount] = new PathTile(posX, posY, c);
+        elsCount++;
+    }
+    public int length(){
+        return elsCount;
+    }
+    public PathTile getTile(int index){
+        return tiles[index];
+    }
+    public void build(int[][] matrix, Car car){
+        PathPoint carPoint = new PathPoint(car.getX(), car.getY(), c);
+        PathTile carTile = carPoint.getPathTile();
+        int cx = carTile.getXpos();
+        int cy = carTile.getYpos();
+        int step = matrix[cx][cy]-1;
+        CarModel carModel = new CarModel(c);
+        Direction[] carDirections = carModel.getDirections();
+        while (step > 0){
+            for (int i = 0; i < carDirections.length; i++) {
+                Direction carDirection = carDirections[i];
+                //System.out.println("CarTile: "+ carTile.getXpos()+", "+carTile.getYpos()+" "+carTile.getTileType()+"  carDirection: "+carDirection);
+                int calcX = cx + c.getXYTileDeltas(carDirection)[0];
+                int calcY = cy + c.getXYTileDeltas(carDirection)[1];
+                PathTile sugTile = new PathTile(calcX, calcY, c);
+                if (sugTile.isValid() && carTile.isDirectionAvailable(carDirection)){
+                    if (matrix[calcX][calcY]==step){
+                        cx = calcX; cy = calcY;
+                        this.addTile(cx, cy);
+                        carTile.setCoordinates(cx, cy);
+                        // TODO Here we should calculate new car bearing
+                        i = carDirections.length;
+                    }
+                }
+            }
+            step--;
+        }
+    }
+
+    public void buildOld(int[][] matrix, Car car){
+        PathPoint carPoint = new PathPoint(car.getX(), car.getY(), c);
+        PathTile carTile = carPoint.getPathTile();
+        int cx = carTile.getXpos();
+        int cy = carTile.getYpos();
+        int step = matrix[cx][cy]-1;
+        Direction carDirection = c.getCarDirection();
+        while (step > 0) {
+
+            // TODO: THIS IS FUCKING SHIT!!!!, REORGANIZE! It should depend on car dir priority;
+            System.out.println("CarTile: "+ carTile.getXpos()+", "+carTile.getYpos()+" "+carTile.getTileType()+"  carDirection: "+carDirection);
+            int calcX = cx + c.getXYTileDeltas(carDirection)[0];
+            int calcY = cy + c.getXYTileDeltas(carDirection)[1];
+            PathTile sugTile = new PathTile(calcX, calcY, c);
+            if (sugTile.isValid()) {
+                if (carTile.isDirectionAvailable(carDirection) &&
+                        (matrix[cx + c.getXYTileDeltas(carDirection)[0]][cy + c.getXYTileDeltas(carDirection)[1]] == step)) {
+
+
+                    System.out.println("Coordinates: " + cx + ", " + cy + "  deltas: "
+                            + c.getXYTileDeltas(carDirection)[0] + ", "
+                            + c.getXYTileDeltas(carDirection)[1]);
+                    cx = cx + c.getXYTileDeltas(carDirection)[0];
+                    cy = cy + c.getXYTileDeltas(carDirection)[1];
+                    System.out.println("New coordinates: " + cx + ", " + cy);
+                    this.addTile(cx, cy);
+                    carTile.setCoordinates(cx, cy);
+                    System.out.println("In building trackRecord new carTile: " + cx + ", " + cy);
+
+                } else {
+                    List<Direction> dirs = carTile.getDirections();
+                    System.out.println("Calculating carTile " + carTile.getXpos()
+                            + ", " + carTile.getYpos()
+                            + " type: " + carTile.getTileType());
+                    for (int i = 0; i < dirs.size(); i++) {
+
+                        System.out.println("Direction: " + dirs.get(i));
+                        cx = carTile.getXpos() + c.getXYTileDeltas(dirs.get(i))[0];
+                        cy = carTile.getYpos() + c.getXYTileDeltas(dirs.get(i))[1];
+                        PathTile calcTile = new PathTile(cx, cy, c);
+                        if (calcTile.isValid()) {
+                            if (matrix[cx][cy] == step && calcTile.isValid()) {
+                                this.addTile(cx, cy);
+                                carTile.setCoordinates(cx, cy);
+                                System.out.println("In building trackRecord NOTCARDIR new carTile: " + cx + ", " + cy);
+                                i = dirs.size();
+                            }
+                        }
+                    }
+                }
+            }
+            else{
+                List<Direction> dirs = carTile.getDirections();
+                System.out.println("Calculating carTile " + carTile.getXpos()
+                        + ", " + carTile.getYpos()
+                        + " type: " + carTile.getTileType());
+                for (int i = 0; i < dirs.size(); i++) {
+
+                    System.out.println("Direction: " + dirs.get(i));
+                    cx = carTile.getXpos() + c.getXYTileDeltas(dirs.get(i))[0];
+                    cy = carTile.getYpos() + c.getXYTileDeltas(dirs.get(i))[1];
+                    PathTile calcTile = new PathTile(cx, cy, c);
+                    if (calcTile.isValid()) {
+                        if (matrix[cx][cy] == step ) {
+                            this.addTile(cx, cy);
+                            carTile.setCoordinates(cx, cy);
+                            System.out.println("In building trackRecord NOTCARDIR new carTile: " + cx + ", " + cy);
+                            i = dirs.size();
+                        }
+                    }
+                }
+            }
+            step--;
+        }
+
+    }
+}
+class DirectorResult{
+    public boolean status;
+    public PathPoint resultObject;
+    DirectorResult(boolean newStatus, PathPoint newObject){
+        status = newStatus;
+        resultObject = newObject;
+    }
+}
+
+class Director {
+    public static PathPoint choosePoint(TrackRecord tRecord, Car car, Context context, int ticks, double accuracy, Debugger debugger, int maxPoints){
+        List<PathPoint> points = definePoints(tRecord, car, context, ticks, accuracy, debugger, maxPoints);
+        double[] times = new double[maxPoints];
+        double minTime = 200;
+        if (points.size()==0){
+            points.add(tRecord.getTile(0).getCenter());
+        }
+        PathPoint chosenPoint = points.get(0);
+        CarModel carModel = new CarModel(context);
+        for (PathPoint point:points ) {
+            double time = carModel.getTimeToTurnToPoint(point);
+            if (time < minTime){
+                chosenPoint = point;
+                minTime = time;
+            }
+        }
+        chosenPoint = points.get(0);
+        return chosenPoint;
+    }
+    public static List <PathPoint> definePoints(TrackRecord tRecord, Car car, Context context, int ticks, double accuracy, Debugger debugger, int maxPoints){
+        List <PathPoint> result = new ArrayList<>();
+        int lastTile = 200;
+        for (int i = 0; i < maxPoints; i++) {
+            DirectorResult res  = definePoint(tRecord, car, context, ticks, accuracy, debugger, lastTile);
+            if (res.status) {
+                result.add(res.resultObject);
+                for (int j = 0; j < tRecord.length(); j++) {
+                    PathPoint thisPoint = res.resultObject;
+                    PathTile thisTile = thisPoint.getPathTile();
+                    PathTile recordTile = tRecord.getTile(j);
+                    if ((thisTile.getXpos() == recordTile.getXpos()) && (thisTile.getYpos() == recordTile.getYpos())) {
+                        lastTile = j - 1;
+                        if (lastTile < 0) lastTile = 0;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+    public static DirectorResult definePoint (TrackRecord tRecord, Car car, Context context, int ticks, double accuracy, Debugger debugger, int maxTile){
+        Game game = context.game;
+
+        PathPoint faceBumper = context.getCarFacePoint();
+
+        PathPoint resultPoint = faceBumper.getBearingDistantPoint(car.getAngle(), 100.0D);
+
+        if (maxTile > tRecord.length()-1) maxTile = tRecord.length()-1;
+        int tileFar = maxTile;
+        int directorLookTileDistance = context.settings.directorLookTileDistance;
+        if (directorLookTileDistance < (tileFar+1)){
+            tileFar = directorLookTileDistance - 1;
+        }
+        boolean gotPoint = false;
+        while (!gotPoint && (tileFar > -1)){
+
+            String choice = "unknown";
+
+            PathTile curTile = tRecord.getTile(tileFar);
+            PathPoint center = new PathPoint((curTile.getXpos()+0.5D)*game.getTrackTileSize(),
+                    (curTile.getYpos()+0.5D)*game.getTrackTileSize(), context);
+
+
+
+            PathPoint leftEnd = new PathPoint((curTile.getXpos())*game.getTrackTileSize(),
+                    (curTile.getYpos()+0.5D)*game.getTrackTileSize(), context);
+            PathPoint rightEnd  = new PathPoint((curTile.getXpos())*game.getTrackTileSize() + game.getTrackTileSize(),
+                    (curTile.getYpos()+0.5D)*game.getTrackTileSize(), context);
+            PathPoint topEnd = new PathPoint((curTile.getXpos()+0.5D)*game.getTrackTileSize(),
+                    (curTile.getYpos())*game.getTrackTileSize(), context);
+            PathPoint bottomEnd = new PathPoint((curTile.getXpos()+0.5D)*game.getTrackTileSize(),
+                    (curTile.getYpos())*game.getTrackTileSize()+ game.getTrackTileSize(), context);
+            if (curTile.getTileType() == TileType.RIGHT_TOP_CORNER){
+                bottomEnd = new PathPoint((curTile.getXpos()+0.2D)*game.getTrackTileSize(),
+                        (curTile.getYpos())*game.getTrackTileSize()+ game.getTrackTileSize(), context);
+                leftEnd = new PathPoint((curTile.getXpos())*game.getTrackTileSize(),
+                        (curTile.getYpos()+0.8D)*game.getTrackTileSize(), context);
+            }
+            if (curTile.getTileType() == TileType.LEFT_TOP_CORNER){
+                bottomEnd = new PathPoint((curTile.getXpos()+0.8D)*game.getTrackTileSize(),
+                        (curTile.getYpos())*game.getTrackTileSize()+ game.getTrackTileSize(), context);
+                rightEnd = new PathPoint((curTile.getXpos())*game.getTrackTileSize(),
+                        (curTile.getYpos()+0.2D)*game.getTrackTileSize(), context);
+            }
+            if (curTile.getTileType() == TileType.LEFT_BOTTOM_CORNER){
+                topEnd = new PathPoint((curTile.getXpos()+0.8D)*game.getTrackTileSize(),
+                        (curTile.getYpos())*game.getTrackTileSize()+ game.getTrackTileSize(), context);
+                rightEnd = new PathPoint((curTile.getXpos())*game.getTrackTileSize(),
+                        (curTile.getYpos()+0.2D)*game.getTrackTileSize(), context);
+            }
+            if (curTile.getTileType() == TileType.RIGHT_BOTTOM_CORNER){
+                topEnd = new PathPoint((curTile.getXpos()+0.2D)*game.getTrackTileSize(),
+                        (curTile.getYpos())*game.getTrackTileSize()+ game.getTrackTileSize(), context);
+                leftEnd = new PathPoint((curTile.getXpos())*game.getTrackTileSize(),
+                        (curTile.getYpos()+0.2D)*game.getTrackTileSize(), context);
+            }
+
+
+
+            PathPoint visiblePoint = leftEnd; choice = "leftEnd";
+            //double minDist = car.getDistanceTo(leftEnd.getX(),leftEnd.getY());
+            double minDist = context.distanceBetweenPoints(faceBumper, leftEnd);
+            //double distRight = car.getDistanceTo(rightEnd.getX(),rightEnd.getY());
+            double distRight = context.distanceBetweenPoints(faceBumper, rightEnd);
+            if (distRight < minDist){
+                visiblePoint = rightEnd; choice = "rightEnd";
+                minDist = distRight;
+            }
+            //double distTop = car.getDistanceTo(topEnd.getX(),topEnd.getY());
+            double distTop = context.distanceBetweenPoints(faceBumper, topEnd);
+            if (distTop < minDist){
+                visiblePoint = topEnd; choice = "topEnd";
+                minDist = distTop;
+            }
+            //double distBottom = car.getDistanceTo(bottomEnd.getX(),bottomEnd.getY());
+            double distBottom = context.distanceBetweenPoints(faceBumper, bottomEnd);
+            if (distBottom < minDist){
+                visiblePoint = bottomEnd; choice = "bottomEnd";
+
+            }
+            //visiblePoint = center; choice = "center";
+            System.out.println("Choosing trackPoint if tRecord("+ tileFar+")=("+curTile.getXpos()
+                    +","+curTile.getYpos()+" visPoint: " + choice
+                    + " ("+visiblePoint.getX()+","+visiblePoint.getY()+")");
+
+            gotPoint = true;
+            for (int i = 0; i < ticks; i++) {
+                //double distance = car.getDistanceTo(visiblePoint.getX(),visiblePoint.getX());
+                double distance = context.distanceBetweenPoints(faceBumper, visiblePoint);
+                double vectorX = (visiblePoint.getX()-faceBumper.getX())/distance;
+                double vectorY = (visiblePoint.getY()-faceBumper.getY())/distance;
+                double calcPosX = faceBumper.getX() + (i * accuracy * vectorX);
+                double calcPosY = faceBumper.getY() + (i * accuracy * vectorY);
+
+                int calcTileX = (int) Math.floor(calcPosX/game.getTrackTileSize());
+                int calcTileY = (int) Math.floor(calcPosY/game.getTrackTileSize());
+
+
+                PathTile calcTile = new PathTile(calcTileX, calcTileY, context);
+                TileBounds tileBounds = Bounder.getBounds(calcTile, context);
+
+                double directorCarCircleVolume = context.settings.directorCarCircleVolume;
+                WorldCircle carCircle = new WorldCircle(calcPosX, calcPosY, car.getWidth()/directorCarCircleVolume);
+                /*System.out.println("Circle "+carCircle.northEnd()+ " "
+                        +carCircle.eastEnd() +" "
+                        +carCircle.southEnd()+" "
+                        +carCircle.westEnd()+" "
+                        +" tile:"+calcTileX+ ","+calcTileY);
+                System.out.println("Bounds "+tileBounds.getTopBound()+" "
+                        +tileBounds.getRightBound()+" "
+                        +tileBounds.getBottomBound()+" "
+                        +tileBounds.getLeftBound()+" ");*/
+                if (!tileBounds.circleInside(carCircle) || calcTile.getTileType()== TileType.EMPTY) {
+                    gotPoint = false;
+                    i = ticks;
+                }
+                if ((calcTileX == curTile.getXpos()) && (calcTileY == curTile.getYpos())){
+                    i = ticks;
+                }
+
+
+            }
+            if (gotPoint){
+
+                resultPoint = visiblePoint;
+                Debugger.print("chosen trackRecord:"+tileFar);
+                debugger.toSlot(1, "chosen end: " + choice);
+                CarModel carModel = new CarModel(context);
+                Direction[] carDirs = carModel.getDirections();
+                debugger.toSlot(2, "carDirections: "+carDirs[0]+", "
+                        +carDirs[1]+", "
+                        +carDirs[2]+", "
+                        +carDirs[3]+" bearing: "+context.car.getAngle());
+            }
+            else{
+                if (tileFar==0) {
+                    resultPoint = tRecord.getTile(tileFar).getCenter();
+                    //debugger.toSlot(1, "nothing chosen, going to trackRecord[0], center ");
+                    debugger.toSlot(1, "nothing chosen, going to look from center ");
+                    //resultPoint = definePointFromCarCenter(tRecord, car, context, ticks, accuracy, debugger);
+                }
+
+            }
+
+            tileFar--;
+        }
+
+        return new DirectorResult(gotPoint, resultPoint);
+    }
+    public static PathPoint definePointFromCarCenter(TrackRecord tRecord, Car car, Context context, int ticks, double accuracy, Debugger debugger){
+        Game game = context.game;
+
+        PathPoint resultPoint = new PathPoint(car.getX(), car.getY(), context);
+        int tileFar = tRecord.length()-1;
+        boolean gotPoint = false;
+        while (!gotPoint && (tileFar > -1)){
+
+            String choice = "unknown";
+
+            PathTile curTile = tRecord.getTile(tileFar);
+            PathPoint center = new PathPoint((curTile.getXpos()+0.5D)*game.getTrackTileSize(),
+                    (curTile.getYpos()+0.5D)*game.getTrackTileSize(), context);
+            PathPoint leftEnd = new PathPoint((curTile.getXpos())*game.getTrackTileSize(),
+                    (curTile.getYpos()+0.5D)*game.getTrackTileSize(), context);
+            PathPoint rightEnd  = new PathPoint((curTile.getXpos())*game.getTrackTileSize() + game.getTrackTileSize(),
+                    (curTile.getYpos()+0.5D)*game.getTrackTileSize(), context);
+            PathPoint topEnd = new PathPoint((curTile.getXpos()+0.5D)*game.getTrackTileSize(),
+                    (curTile.getYpos())*game.getTrackTileSize(), context);
+            PathPoint bottomEnd = new PathPoint((curTile.getXpos()+0.5D)*game.getTrackTileSize(),
+                    (curTile.getYpos())*game.getTrackTileSize()+ game.getTrackTileSize(), context);
+
+            PathPoint visiblePoint = leftEnd; choice = "leftEnd";
+            double minDist = car.getDistanceTo(leftEnd.getX(),leftEnd.getY());
+            double distRight = car.getDistanceTo(rightEnd.getX(),rightEnd.getY());
+            if (distRight < minDist){
+                visiblePoint = rightEnd; choice = "rightEnd";
+                minDist = distRight;
+            }
+            double distTop = car.getDistanceTo(topEnd.getX(),topEnd.getY());
+            if (distTop < minDist){
+                visiblePoint = topEnd; choice = "topEnd";
+                minDist = distTop;
+            }
+            double distBottom = car.getDistanceTo(bottomEnd.getX(),bottomEnd.getY());
+            if (distBottom < minDist){
+                visiblePoint = bottomEnd; choice = "bottomEnd";
+
+            }
+            //visiblePoint = center; choice = "center";
+            System.out.println("Choosing trackPoint if tRecord("+ tileFar+")=("+curTile.getXpos()
+                    +","+curTile.getYpos()+" visPoint: " + choice
+                    + " ("+visiblePoint.getX()+","+visiblePoint.getY()+")");
+
+            gotPoint = true;
+            for (int i = 0; i < ticks; i++) {
+                double distance = car.getDistanceTo(visiblePoint.getX(),visiblePoint.getX());
+                double vectorX = (visiblePoint.getX()-car.getX())/distance;
+                double vectorY = (visiblePoint.getY()-car.getY())/distance;
+                double calcPosX = car.getX() + (i * accuracy * vectorX);
+                double calcPosY = car.getY() + (i * accuracy * vectorY);
+
+                int calcTileX = (int) Math.floor(calcPosX/game.getTrackTileSize());
+                int calcTileY = (int) Math.floor(calcPosY/game.getTrackTileSize());
+
+
+                PathTile calcTile = new PathTile(calcTileX, calcTileY, context);
+                TileBounds tileBounds = Bounder.getBounds(calcTile, context);
+                WorldCircle carCircle = new WorldCircle(calcPosX, calcPosY, car.getWidth()/3.0D);
+                /*System.out.println("Circle "+carCircle.northEnd()+ " "
+                        +carCircle.eastEnd() +" "
+                        +carCircle.southEnd()+" "
+                        +carCircle.westEnd()+" "
+                        +" tile:"+calcTileX+ ","+calcTileY);
+                System.out.println("Bounds "+tileBounds.getTopBound()+" "
+                        +tileBounds.getRightBound()+" "
+                        +tileBounds.getBottomBound()+" "
+                        +tileBounds.getLeftBound()+" ");*/
+                if (!tileBounds.circleInside(carCircle) || calcTile.getTileType()== TileType.EMPTY) {
+                    gotPoint = false;
+                    i = ticks;
+                }
+                if ((calcTileX == curTile.getXpos()) && (calcTileY == curTile.getYpos())){
+                    i = ticks;
+                }
+
+
+            }
+            if (gotPoint){
+
+                resultPoint = visiblePoint;
+                Debugger.print("chosen trackRecord:"+tileFar);
+                debugger.toSlot(1, "chosen end: " + choice);
+            }
+            else{
+                if (tileFar==0) {
+                    resultPoint = tRecord.getTile(tileFar).getCenter();
+                    debugger.toSlot(1, "nothing chosen, going to trackRecord[0], center ");
+                }
+
+            }
+
+            tileFar--;
+        }
+        return resultPoint;
+    }
+}
+
+class WorldCircle{
+    private double x;
+    private double y;
+    private double radius;
+    WorldCircle(double cx, double cy, double rad){
+        x = cx;
+        y = cy;
+        radius = rad;
+    }
+    public boolean gotCrossingWith(double ox, double oy, double orad){
+        double centersDistance = Math.sqrt( Math.pow(ox - x, 2) + Math.pow(oy - y, 2) );
+        double collisionDistance = orad + radius;
+        boolean crossing = false;
+        if (centersDistance <= collisionDistance){
+            crossing = true;
+        }
+        return crossing;
+    }
+    public double northEnd(){
+        return y - radius;
+    }
+    public double southEnd(){
+        return y + radius;
+    }
+    public double westEnd(){
+        return x - radius;
+    }
+    public double eastEnd(){
+        return x + radius;
+    }
+    public double getX(){
+        return x;
+    }
+    public double getY(){
+        return y;
+    }
+    public double getRadius(){
+        return radius;
+    }
+}
+
+class TileBounds{
+    private double top;
+    private double bottom;
+    private double left;
+    private double right;
+    private int circlesCount;
+    private WorldCircle circles[];
+    private Game game;
+    private Context c;
+    TileBounds(Context context){
+        circles = new WorldCircle[4];
+        top = -1.0D;
+        left = -1.0D;
+        bottom = 80000.0D;
+        right = 80000.0D;
+        c = context;
+        game = c.game;
+    }
+    public boolean circleInside(WorldCircle oCircle){
+        boolean inside = true;
+        if (
+                (oCircle.northEnd()     <= top)   ||
+                        (oCircle.southEnd()     >= bottom) ||
+                        (oCircle.westEnd()      <= left) ||
+                        (oCircle.eastEnd()      >= right)
+                ){
+            inside = false;
+        }
+        for (int i = 0; i < circlesCount; i++) {
+            if (oCircle.gotCrossingWith(circles[i].getX(), circles[i].getY(),circles[i].getRadius() )){
+                inside = false;
+            }
+        }
+        return inside;
+    }
+    public void setTopBound(PathTile someTile){
+        top = someTile.getYpos() * game.getTrackTileSize() + game.getTrackTileMargin();
+    }
+    public void setBottomBound(PathTile someTile){
+        bottom = someTile.getYpos() * game.getTrackTileSize() + game.getTrackTileSize() - game.getTrackTileMargin();
+    }
+    public void setLeftBound(PathTile someTile){
+        left = someTile.getXpos() * game.getTrackTileSize() + game.getTrackTileMargin();
+    }
+    public void setRightBound(PathTile someTile){
+        right = someTile.getXpos() * game.getTrackTileSize() + game.getTrackTileSize() - game.getTrackTileMargin();
+    }
+    public void setTopLeftBound(PathTile someTile){
+        WorldCircle topLeft = new WorldCircle(
+                someTile.getXpos() * game.getTrackTileSize(),
+                someTile.getYpos() * game.getTrackTileSize(),
+                game.getTrackTileMargin());
+        addCircle(topLeft);
+    }
+    public void setTopRightBound(PathTile someTile){
+        WorldCircle topRight = new WorldCircle(
+                someTile.getXpos() * game.getTrackTileSize() + game.getTrackTileSize(),
+                someTile.getYpos() * game.getTrackTileSize(),
+                game.getTrackTileMargin());
+        addCircle(topRight);
+    }
+    public void setBottomLeftBound(PathTile someTile){
+        WorldCircle bottomLeft = new WorldCircle(
+                someTile.getXpos() * game.getTrackTileSize(),
+                someTile.getYpos() * game.getTrackTileSize() + game.getTrackTileSize(),
+                game.getTrackTileMargin());
+        addCircle(bottomLeft);
+    }
+    public void setBottomRightBound(PathTile someTile){
+        WorldCircle bottomRight = new WorldCircle(
+                someTile.getXpos() * game.getTrackTileSize() + game.getTrackTileSize(),
+                someTile.getYpos() * game.getTrackTileSize() + game.getTrackTileSize(),
+                game.getTrackTileMargin());
+        addCircle(bottomRight);
+    }
+    public void addCircle(WorldCircle newCircle){
+        circles[circlesCount] = newCircle;
+        circlesCount++;
+    }
+    public double getTopBound(){
+        return top;
+    }
+    public double getBottomBound(){
+        return bottom;
+    }
+    public double getLeftBound(){
+        return left;
+    }
+    public double getRightBound(){
+        return right;
+    }
+    public int getCircleCount(){
+        return circlesCount;
+    }
+}
+class Bounder{
+    public static TileBounds getBounds(PathTile someTile, Context context){
+        TileType tileType = context.world.getTilesXY()[someTile.getXpos()][someTile.getYpos()];
+
+        Map <TileType, List<Bound>> tileTypeBounds = new HashMap<>();
+        tileTypeBounds.put(TileType.VERTICAL,
+                new ArrayList<>(Arrays.asList(Bound.LEFT, Bound.RIGHT)));
+        tileTypeBounds.put(TileType.HORIZONTAL,
+                new ArrayList<>(Arrays.asList(Bound.TOP, Bound.BOTTOM)));
+        tileTypeBounds.put(TileType.LEFT_TOP_CORNER,
+                new ArrayList<>(Arrays.asList(Bound.TOP, Bound.LEFT, Bound.BOTTOMRIGHT)));
+        tileTypeBounds.put(TileType.RIGHT_TOP_CORNER,
+                new ArrayList<>(Arrays.asList(Bound.TOP, Bound.RIGHT, Bound.BOTTOMLEFT)));
+        tileTypeBounds.put(TileType.LEFT_BOTTOM_CORNER,
+                new ArrayList<>(Arrays.asList(Bound.BOTTOM, Bound.LEFT, Bound.TOPRIGHT)));
+        tileTypeBounds.put(TileType.RIGHT_BOTTOM_CORNER,
+                new ArrayList<>(Arrays.asList(Bound.BOTTOM, Bound.RIGHT, Bound.TOPLEFT)));
+        tileTypeBounds.put(TileType.LEFT_HEADED_T,
+                new ArrayList<>(Arrays.asList(Bound.RIGHT, Bound.TOPLEFT, Bound.BOTTOMLEFT)));
+        tileTypeBounds.put(TileType.RIGHT_HEADED_T,
+                new ArrayList<>(Arrays.asList(Bound.LEFT, Bound.TOPRIGHT, Bound.BOTTOMRIGHT)));
+        tileTypeBounds.put(TileType.TOP_HEADED_T,
+                new ArrayList<>(Arrays.asList(Bound.BOTTOM, Bound.TOPRIGHT, Bound.TOPLEFT)));
+        tileTypeBounds.put(TileType.BOTTOM_HEADED_T,
+                new ArrayList<>(Arrays.asList(Bound.TOP, Bound.BOTTOMRIGHT, Bound.BOTTOMLEFT)));
+        tileTypeBounds.put(TileType.CROSSROADS,
+                new ArrayList<>(Arrays.asList(Bound.BOTTOMRIGHT, Bound.BOTTOMLEFT, Bound.TOPLEFT, Bound.TOPRIGHT)));
+        tileTypeBounds.put(TileType.UNKNOWN,
+                new ArrayList<>(Arrays.asList(Bound.BOTTOMRIGHT, Bound.BOTTOMLEFT, Bound.TOPLEFT, Bound.TOPRIGHT)));
+        tileTypeBounds.put(TileType.EMPTY,
+                new ArrayList<>(Arrays.asList(Bound.BOTTOMRIGHT, Bound.BOTTOMLEFT, Bound.TOPLEFT, Bound.TOPRIGHT)));
+
+        List <Bound> bounds = tileTypeBounds.get(tileType);
+        TileBounds result = new TileBounds(context);
+        //System.out.println("TileType: " + tileType + " Bounds: " + bounds + " tick " + newWorld.getTick());
+        for (Bound bound: bounds) {
+            if (bound == Bound.TOP) result.setTopBound(someTile);
+            if (bound == Bound.BOTTOM) result.setBottomBound(someTile);
+            if (bound == Bound.RIGHT) result.setRightBound(someTile);
+            if (bound == Bound.LEFT) result.setLeftBound(someTile);
+
+            if (bound == Bound.TOPRIGHT) result.setTopRightBound(someTile);
+            if (bound == Bound.BOTTOMRIGHT) result.setBottomRightBound(someTile);
+            if (bound == Bound.TOPLEFT) result.setTopLeftBound(someTile);
+            if (bound == Bound.BOTTOMLEFT) result.setBottomLeftBound(someTile);
+        }
+        return result;
+    }
+}
+
+enum Bound {TOP, LEFT, BOTTOM, RIGHT, TOPLEFT, TOPRIGHT, BOTTOMLEFT, BOTTOMRIGHT};
+
+class Debugger{
+    private String[] slots;
+    private boolean active;
+    Debugger(boolean newActive){
+        slots = new String[10];
+        active = newActive;
+    }
+    public static void printMatrix(int[][] matrix){
+        for (int j = 0; j < matrix[0].length; j++) {
+            for (int i = 0; i < matrix.length; i++) {
+                System.out.print(matrix[i][j] + "   ");
+            }
+            System.out.print("\n");
+        }
+    }
+    public static void print(String mes){
+        System.out.println(mes);
+    }
+    public void toSlot(int index, String mes){
+        if (!Objects.equals(mes, slots[index])){
+            slots[index] = mes;
+            if (active) System.out.println("Slt:"+index+"  "+mes);
+        }
+    }
+    public static double piAngle(double angle){
+        double value = angle/PI;
+        int precise = 4;
+        precise = 10^precise;
+        value = value*precise;
+        int i = (int) Math.round(value);
+        return (double) i/precise;
+    }
+}
+class routeMatrix{
+    public static int[][] getMatrixForPoint(PathTile wayPointTile, Context context, boolean updated){
+
+        Direction carDirection = context.getCarDirection();
+        int deltaX = (-1) * context.getXYTileDeltas(carDirection)[0];
+        int deltaY = (-1) * context.getXYTileDeltas(carDirection)[1];
+        PathPoint carPoint = new PathPoint(context.car.getX(), context.car.getY(), context);
+        PathTile carTile = carPoint.getPathTile();
+        int carFactTileX = carTile.getXpos() ;
+        int carFactTileY = carTile.getYpos() ;
+        int carTileX = carFactTileX;
+        int carTileY = carFactTileY;
+        if (updated) {
+            carTileX = context.car.getNextWaypointX();
+            carTileY = context.car.getNextWaypointY();
+            carTile.setCoordinates(carTileX, carTileY);
+        }
+        int backTileX = carTile.getXpos() + deltaX;
+        int backTileY = carTile.getYpos() + deltaY;
+
+        TileType tiles[][] = context.world.getTilesXY();
+        TileType stiles[] = tiles[1];
+
+        int hTilesCount = tiles.length;
+        int vTilesCount = stiles.length;
+
+        int[][] visits;
+        visits = new int[hTilesCount][vTilesCount];
+        boolean reached = false;
+        int front = 0;
+        int step = 1;
+        int nextWayPointX = wayPointTile.getXpos();
+        int nextWayPointY = wayPointTile.getYpos();
+        visits[nextWayPointX][nextWayPointY] = 1;
+
+        if ((backTileX >= 0) && (backTileY >= 0)
+                && (backTileX < hTilesCount) && (backTileY < vTilesCount)) {
+            //visits[backTileX][backTileY] = -1;            // Back tile is deprecated
+        }
+
+        World world = context.world;
+
+        Map<String, List<Integer>> dirs = new HashMap<>();
+        dirs.put("DOWN", new ArrayList<>(Arrays.asList(0, 1)));
+        dirs.put("LEFT", new ArrayList<>(Arrays.asList(-1, 0)));
+        dirs.put("UP", new ArrayList<>(Arrays.asList(0, -1)));
+        dirs.put("RIGHT", new ArrayList<>(Arrays.asList(1, 0)));
+
+        Map <TileType, List<String>> tileTypes = new HashMap<>();
+        tileTypes.put(TileType.VERTICAL, new ArrayList<>(Arrays.asList("DOWN", "UP")));
+        tileTypes.put(TileType.HORIZONTAL, new ArrayList<>(Arrays.asList("LEFT", "RIGHT")));
+        tileTypes.put(TileType.LEFT_TOP_CORNER, new ArrayList<>(Arrays.asList("DOWN", "RIGHT")));
+        tileTypes.put(TileType.RIGHT_TOP_CORNER, new ArrayList<>(Arrays.asList("DOWN", "LEFT")));
+        tileTypes.put(TileType.LEFT_BOTTOM_CORNER, new ArrayList<>(Arrays.asList("UP", "RIGHT")));
+        tileTypes.put(TileType.RIGHT_BOTTOM_CORNER, new ArrayList<>(Arrays.asList("LEFT", "UP")));
+        tileTypes.put(TileType.LEFT_HEADED_T, new ArrayList<>(Arrays.asList("DOWN", "LEFT", "UP")));
+        tileTypes.put(TileType.RIGHT_HEADED_T, new ArrayList<>(Arrays.asList("DOWN", "UP", "RIGHT")));
+        tileTypes.put(TileType.TOP_HEADED_T, new ArrayList<>(Arrays.asList( "LEFT", "UP", "RIGHT")));
+        tileTypes.put(TileType.BOTTOM_HEADED_T, new ArrayList<>(Arrays.asList("DOWN", "LEFT", "RIGHT")));
+        tileTypes.put(TileType.CROSSROADS, new ArrayList<>(Arrays.asList("DOWN", "LEFT", "UP", "RIGHT")));
+        tileTypes.put(TileType.UNKNOWN, new ArrayList<>(Arrays.asList("DOWN", "LEFT", "UP", "RIGHT")));
+
+
+        int deprecatedStep = -20;
+        while (!reached){
+            if ((carTileX == nextWayPointX) && (carTileY == nextWayPointY)){
+                reached = true;
+                System.out.println("I'm on wayPoint");
+            }
+
+            step++;
+            front++;
+
+            // TODO: debug mode
+            if (step>250) {
+                System.out.println("fuck steps");
+                reached = true;
+            }
+            for (int i = 0; i < hTilesCount; i++) {
+                for (int j = 0; j < vTilesCount; j++) {
+
+                    if (visits[i][j] == front){
+                        TileType[][] tilesXY = world.getTilesXY();
+                        TileType thisTiletype = tilesXY[i][j];
+                        if (thisTiletype != TileType.EMPTY){
+                            List<String> directions;
+                            directions = tileTypes.get(thisTiletype);
+                            for (int k = 0; k < directions.size(); k++) {
+                                List<Integer> deltas = dirs.get(directions.get(k));
+                                int tx = i + deltas.get(0);
+                                int ty = j + deltas.get(1);
+                                if ((tx < 0) || (tx == hTilesCount) || (ty < 0) || (ty == vTilesCount)){
+                                    // Tile does not exist, do nothing
+                                }
+                                else{
+                                    if (visits[tx][ty] == 0){
+                                        visits[tx][ty] = step;
+                                        if (updated){
+                                            reached = false;
+                                            if ((tx==carFactTileX) && (ty==carFactTileY)){
+                                                System.out.println("Blocking value setting for "+tx+", "+ty);
+                                                visits[tx][ty] = 0;
+                                            }
+                                        }
+
+                                        if ((tx == carTileX) && (ty == carTileY)){
+                                            System.out.println("Got carTile "+tx+", "+ty+" deprecated step: "+deprecatedStep);
+                                            reached = true;
+                                            if (step == deprecatedStep){
+                                                reached = false;
+                                                visits[tx][ty] = 0;
+                                            }
+
+                                            if (updated){
+                                                System.out.println("Changing to  "+carFactTileX+", "+carFactTileY);
+                                                deprecatedStep = step;
+                                                carTileX = carFactTileX;
+                                                carTileY = carFactTileY;
+                                                reached = false;
+                                                updated = false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+
+
+
+                    }
+                }
+            }
+
+
+        }
+
+        return visits;
+    }
+}
+class MySettings{
+    public double directorCarCircleVolume;
+    public int directorLookTileDistance;
+    MySettings(double newDirectorCarCircleVolume, int newDirectorLookTileDistance){
+        directorCarCircleVolume = newDirectorCarCircleVolume;
+        directorLookTileDistance = newDirectorLookTileDistance;
     }
 }
