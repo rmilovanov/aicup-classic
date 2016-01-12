@@ -4,6 +4,7 @@ import model.*;
 import static java.lang.StrictMath.*;
 
 import java.util.*;
+// version classic published as 13th
 
 
 public final class MyStrategy implements Strategy {
